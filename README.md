@@ -45,6 +45,14 @@ If it stutters, drops, or never forms, your recording is untouched. Audio is wri
 losslessly to local storage as you talk and uploaded in 30-second segments with
 backoff, so a lift, a tunnel, or a locked phone costs you a retry, not a take.
 
+**Raw mode, meaning raw.** Any take can be marked raw before you record. Then nothing
+is ever applied to its samples: no denoise, no dereverb, no loudness, no limiter, no
+head trim, and no drift resampling. Stems upload and export as 32-bit float — bit-for-bit
+what the microphone produced — and the alignment is delivered as numbers in a text file
+for you to apply in your own editor. It is a single switch rather than a row of sliders
+set to zero, because zeroed sliders would still leave the mastering stage running and the
+label would be a lie. Costs about twice the storage, since FLAC cannot carry float.
+
 **Jingles.** Drop in an intro, outro or bed. They are placed on the timeline at exact
 offsets with fades, and a bed automatically ducks both voices underneath it.
 

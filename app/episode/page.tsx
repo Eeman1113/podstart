@@ -102,6 +102,11 @@ function Episode() {
 
       <Timecode seconds={position} live={false} />
 
+      <ModeSwitch mode={state.mode} onChange={episode.setMode} />
+
+      {state.mode === 'raw' ? (
+        <RawCard episode={episode} />
+      ) : (
       <Card style={{ display: 'grid', gap: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <h2 className="slate">Cleanup</h2>
@@ -194,18 +199,27 @@ function Episode() {
           ) : null,
         )}
       </Card>
+      )}
 
       <JingleCard episode={episode} sessionId={sessionId} />
 
       <Card style={{ display: 'grid', gap: 12 }}>
         <h2 className="slate">Mix</h2>
 
-        <Toggle
-          label="Trim the lead-in"
-          description="Cuts the countdown and the “can you hear me” before the first word."
-          checked={state.mixSettings.trimHead}
-          onChange={(trimHead) => episode.setMixSettings({ ...state.mixSettings, trimHead })}
-        />
+        {state.mode === 'raw' ? (
+          <p style={{ fontSize: 14, color: 'var(--label-secondary)', lineHeight: 1.5 }}>
+            Raw take: the mix places both stems on one timeline and sums them. No trim,
+            no loudness, no limiter. The sum can exceed 0 dBFS, and nothing here will
+            stop it — set the levels below if it does.
+          </p>
+        ) : (
+          <Toggle
+            label="Trim the lead-in"
+            description="Cuts the countdown and the “can you hear me” before the first word."
+            checked={state.mixSettings.trimHead}
+            onChange={(trimHead) => episode.setMixSettings({ ...state.mixSettings, trimHead })}
+          />
+        )}
         <Toggle
           label="Stereo"
           description="Mono is the podcast default and halves the file. Stereo only if you want the voices separated."
@@ -256,6 +270,11 @@ function Episode() {
             <Row label="Loudness" value={`${state.mix.loudness.lufs.toFixed(1)} LUFS`} tone="good" />
             <Row label="True peak" value={`${state.mix.loudness.truePeakDb.toFixed(1)} dBTP`} />
             <Row label="Loudness range" value={`${state.mix.loudness.lra.toFixed(1)} LU`} />
+            <Row
+              label="Applied to samples"
+              value={describeApplied(state.mix.applied)}
+              tone={state.mode === 'raw' ? 'good' : 'default'}
+            />
 
             <audio
               ref={audioRef}
@@ -504,6 +523,27 @@ function ExportRow({
         Download both stems separately
       </Button>
 
+      {/* The bit-exact route. 32-bit float because that is what the capture
+          produced: anything narrower is a conversion, however inaudible. */}
+      <Button
+        full
+        onClick={() => {
+          for (const stem of state.stems) {
+            download(
+              wavBlob(stem.raw, stem.sampleRate, 1, 32),
+              `${title}-${stem.track.display_name.toLowerCase()}-raw.wav`,
+            )
+          }
+          const sidecar = episode.sidecar()
+          if (sidecar) {
+            download(sidecar.readme, `${title}-sync-notes.txt`)
+            download(sidecar.json, `${title}-sync.json`)
+          }
+        }}
+      >
+        Download untouched stems + sync notes
+      </Button>
+
       <Button
         full
         disabled={saving}
@@ -531,6 +571,126 @@ function ExportRow({
       </Button>
     </div>
   )
+}
+
+/**
+ * The raw / cleaned switch.
+ *
+ * Deliberately a single switch rather than "turn all the sliders to zero":
+ * zeroed sliders still leave loudness normalisation, limiting and drift
+ * resampling running, so the result would not be raw and the label would be a
+ * lie. This disables every sample-altering stage at once.
+ */
+function ModeSwitch({
+  mode,
+  onChange,
+}: {
+  mode: 'clean' | 'raw'
+  onChange(mode: 'clean' | 'raw'): void
+}) {
+  return (
+    <Card style={{ display: 'grid', gap: 12 }}>
+      <h2 className="slate">Mode</h2>
+      <div
+        role="radiogroup"
+        aria-label="Processing mode"
+        style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}
+      >
+        {(['clean', 'raw'] as const).map((option) => {
+          const selected = mode === option
+          return (
+            <button
+              key={option}
+              role="radio"
+              aria-checked={selected}
+              onClick={() => onChange(option)}
+              style={{
+                padding: '12px 14px',
+                minHeight: 'var(--tap)',
+                borderRadius: 'var(--radius)',
+                fontWeight: 600,
+                background: selected
+                  ? 'color-mix(in srgb, var(--accent) 16%, transparent)'
+                  : 'var(--bg-control)',
+                border: `1.5px solid ${selected ? 'var(--accent)' : 'transparent'}`,
+              }}
+            >
+              {option === 'clean' ? 'Cleaned' : 'Raw'}
+            </button>
+          )
+        })}
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--label-secondary)', lineHeight: 1.5 }}>
+        {mode === 'raw'
+          ? 'Nothing will be applied to these samples. Both stems export exactly as captured, with the alignment delivered as numbers in a text file.'
+          : 'Cleanup and mastering are allowed. The originals are kept, and you can switch back at any time.'}
+      </p>
+    </Card>
+  )
+}
+
+function RawCard({ episode }: { episode: ReturnType<typeof useEpisode> }) {
+  const { state } = episode
+
+  return (
+    <Card style={{ display: 'grid', gap: 12 }}>
+      <h2 className="slate">Untouched</h2>
+      <p style={{ fontSize: 15, color: 'var(--label-secondary)', lineHeight: 1.5 }}>
+        The cleanup chain is off. These are the samples your microphones produced —
+        room tone, breaths, handling noise and all.
+      </p>
+
+      {state.stems.map((stem) => {
+        const capture = stem.track.capture as { path?: string; bitDepth?: number }
+        return (
+          <div key={stem.track.id}>
+            <Row
+              label={stem.track.display_name}
+              value={`${stem.sampleRate} Hz · ${stem.raw.length} samples`}
+            />
+            <Row
+              label="Captured"
+              value={capture?.path === 'raw' ? 'raw signal' : 'browser-processed'}
+              tone={capture?.path === 'raw' ? 'good' : 'warn'}
+            />
+            <Row
+              label="Clock drift"
+              value={
+                stem.track.drift_ppm && Math.abs(stem.track.drift_ppm) >= 1
+                  ? `${stem.track.drift_ppm.toFixed(1)} ppm — not corrected`
+                  : 'negligible'
+              }
+              tone={
+                stem.track.drift_ppm && Math.abs(stem.track.drift_ppm) >= 20 ? 'warn' : 'default'
+              }
+            />
+          </div>
+        )
+      })}
+
+      <p style={{ fontSize: 13, color: 'var(--label-tertiary)', lineHeight: 1.5 }}>
+        Drift is left in deliberately: removing it means resampling, which rewrites every
+        sample. If your take runs long and you care about the last minute lining up,
+        apply the figure from the sync notes in your editor, or switch to Cleaned.
+      </p>
+    </Card>
+  )
+}
+
+/** Plain-language summary of which stages touched the audio. */
+function describeApplied(applied: {
+  driftCorrection: boolean
+  headTrim: boolean
+  loudnessNormalisation: boolean
+  limiting: boolean
+  resampling: boolean
+}): string {
+  const stages: string[] = []
+  if (applied.resampling) stages.push('resampled')
+  if (applied.headTrim) stages.push('trimmed')
+  if (applied.loudnessNormalisation) stages.push('levelled')
+  if (applied.limiting) stages.push('limited')
+  return stages.length > 0 ? stages.join(', ') : 'nothing'
 }
 
 function Centered({ children }: { children: React.ReactNode }) {

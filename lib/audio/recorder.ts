@@ -46,7 +46,12 @@ export interface RecorderOptions {
   capture: Capture
   basePath: string
   segmentSeconds?: number
-  bitsPerSample?: 16 | 24
+  /**
+   * 24 is lossless for any microphone a phone has. 32 is IEEE float: the
+   * samples as the browser produced them, with no quantisation at all. Raw
+   * takes use 32 so that "untouched" is literally true.
+   */
+  bitsPerSample?: 16 | 24 | 32
   /**
    * Per-device correction for microphone hardware latency, in milliseconds.
    * Positive means this device hears late, so its audio is nudged earlier.
@@ -142,7 +147,7 @@ export class Recorder {
         channels: this.channels,
         bitsPerSample: this.options.bitsPerSample ?? 24,
         segmentSeconds: this.options.segmentSeconds ?? 30,
-        codec: 'flac',
+        codec: (this.options.bitsPerSample ?? 24) === 32 ? 'wav' : 'flac',
       })
     })
   }

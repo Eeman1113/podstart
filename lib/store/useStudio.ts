@@ -9,7 +9,7 @@ import { Room, type RemotePresence, type RemoteStatus } from '@/lib/room/room'
 import { SegmentUploader, type UploadProgress } from '@/lib/store/uploads'
 import { createSession, createTrack, joinRoom, roomByCode, updateSession, updateTrack } from '@/lib/store/db'
 import { ensureSignedIn, supabase } from '@/lib/supabase/client'
-import type { Room as RoomRow, Session } from '@/lib/supabase/types'
+import type { ProcessingMode, Room as RoomRow, Session } from '@/lib/supabase/types'
 
 /**
  * Everything the studio screen does, in one hook.
@@ -52,6 +52,13 @@ export interface StudioState {
   error: string | null
   talkbackMuted: boolean
   qualityConflict: boolean
+  /**
+   * Chosen before the take and recorded on it. Raw means nothing will ever be
+   * applied to these samples, in the studio or afterwards.
+   */
+  processing: ProcessingMode
+  /** True once the lossless local file exists and can be saved to disk. */
+  hasLocalCopy: boolean
 }
 
 const EMPTY_UPLOAD: UploadProgress = { uploaded: 0, pending: 0, failed: 0, bytesUploaded: 0 }
@@ -78,6 +85,8 @@ export function useStudio(roomCode: string, basePath: string) {
   const [warnings, setWarnings] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [talkbackMuted, setTalkbackMuted] = useState(false)
+  const [processing, setProcessing] = useState<ProcessingMode>('clean')
+  const [hasLocalCopy, setHasLocalCopy] = useState(false)
 
   const myEnvelope = useMemo(() => new EnvelopeTrack(), [])
   const friendEnvelope = useMemo(() => new EnvelopeTrack(), [])
@@ -105,6 +114,7 @@ export function useStudio(roomCode: string, basePath: string) {
       try {
         const storedName = localStorage.getItem('podstart:name') || 'You'
         setMyName(storedName)
+        if (localStorage.getItem('podstart:processing') === 'raw') setProcessing('raw')
 
         const userId = await ensureSignedIn(storedName)
         userIdRef.current = userId
@@ -151,6 +161,9 @@ export function useStudio(roomCode: string, basePath: string) {
           capture: opened,
           basePath,
           calibrationMs: Number(localStorage.getItem('podstart:calibration') ?? 0),
+          // A raw take uploads 32-bit float so that nothing, not even a
+          // quantisation to 24-bit, is applied to the samples.
+          bitsPerSample: processing === 'raw' ? 32 : 24,
           events: {
             onEnvelope: (peak, rms, atFrame) => {
               setMyLevel({ peak, rms })
@@ -180,6 +193,7 @@ export function useStudio(roomCode: string, basePath: string) {
               void registerTrack(startEpochMs, opened)
             },
             onFinished: async (summary) => {
+              setHasLocalCopy(summary.hasLocalCopy)
               const trackId = trackIdRef.current
               if (trackId) {
                 await updateTrack(trackId, {
@@ -233,7 +247,7 @@ export function useStudio(roomCode: string, basePath: string) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [room, basePath, warn],
+    [room, basePath, warn, processing],
   )
 
   const attachRemoteAudio = (stream: MediaStream) => {
@@ -314,7 +328,7 @@ export function useStudio(roomCode: string, basePath: string) {
       // An offset measured minutes ago is stale; re-measure at the last moment.
       if (peerRoom.connected) await peerRoom.measureClock()
 
-      const created = await createSession(room.id, defaultTakeTitle())
+      const created = await createSession(room.id, defaultTakeTitle(), processing)
       sessionRef.current = created
       setSession(created)
 
@@ -324,7 +338,7 @@ export function useStudio(roomCode: string, basePath: string) {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
     }
-  }, [room])
+  }, [room, processing])
 
   const finish = useCallback(async () => {
     const recorder = recorderRef.current
@@ -461,7 +475,29 @@ export function useStudio(roomCode: string, basePath: string) {
     clockJitterMs: clock.jitter,
     dataChannelOpen, warnings, error, talkbackMuted,
     qualityConflict: talkbackHurtsQuality() && !talkbackMuted,
+    processing, hasLocalCopy,
   }
+
+  const chooseProcessing = useCallback((next: ProcessingMode) => {
+    setProcessing(next)
+    localStorage.setItem('podstart:processing', next)
+  }, [])
+
+  /**
+   * Hands back the untouched local recording as a 32-bit float WAV.
+   *
+   * This is the most faithful artefact podstart can produce: the samples go
+   * from the microphone into local storage and out to this file without ever
+   * being converted, scaled or quantised.
+   */
+  const saveLocalCopy = useCallback(async (): Promise<Blob | null> => {
+    const recorder = recorderRef.current
+    if (!recorder) return null
+    const samples = await recorder.readLocalCopy()
+    if (!samples) return null
+    const { wavBlob } = await import('@/lib/audio/wav')
+    return wavBlob(samples, recorder.sampleRate, recorder.channels, 32)
+  }, [])
 
   return {
     state,
@@ -469,6 +505,8 @@ export function useStudio(roomCode: string, basePath: string) {
     record,
     stop,
     toggleTalkback,
+    setProcessing: chooseProcessing,
+    saveLocalCopy,
     dismissWarning: (message: string) =>
       setWarnings((previous) => previous.filter((w) => w !== message)),
   }

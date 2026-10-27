@@ -56,6 +56,25 @@ export interface MixSettings {
   trimHead: boolean
   /** Seconds of room left before the first word and after the last. */
   headroomSec: number
+
+  /**
+   * Mastering: bring the programme to the target loudness and hold the
+   * inter-sample peak under the ceiling.
+   *
+   * Switched off for a raw take. Note that off means OFF -- the sum of two
+   * voices can and will exceed 0 dBFS, and nothing here will stop it. That is
+   * the correct behaviour when you have asked for the samples untouched.
+   */
+  master: boolean
+
+  /**
+   * Resample each stem to undo its measured capture-clock drift.
+   *
+   * This is the one alignment step that actually rewrites samples, which is
+   * why it is separable from the rest. With it off, a long take will slowly
+   * drift apart -- but every sample is the one the microphone produced.
+   */
+  correctDrift: boolean
 }
 
 export const DEFAULT_MIX: MixSettings = {
@@ -66,6 +85,24 @@ export const DEFAULT_MIX: MixSettings = {
   targetLufs: PODCAST_TARGET_LUFS,
   trimHead: true,
   headroomSec: 0.4,
+  master: true,
+  correctDrift: true,
+}
+
+/**
+ * Raw: place the stems on one timeline and sum them, and do nothing else.
+ *
+ * No trim, no loudness, no limiting, no drift resampling. Combined with raw
+ * stems this produces a mix whose every sample is traceable to a microphone.
+ */
+export const RAW_MIX: MixSettings = {
+  sampleRate: 48000,
+  channels: 1,
+  targetLufs: PODCAST_TARGET_LUFS,
+  trimHead: false,
+  headroomSec: 0,
+  master: false,
+  correctDrift: false,
 }
 
 export interface MixResult {
@@ -78,6 +115,14 @@ export interface MixResult {
   placement: { id: string; offsetSec: number; durationSec: number }[]
   /** Gap between the two stems' first samples, in ms. The sync proof. */
   spreadMs: number
+  /** Exactly which stages touched the samples, so the UI can say so. */
+  applied: {
+    driftCorrection: boolean
+    headTrim: boolean
+    loudnessNormalisation: boolean
+    limiting: boolean
+    resampling: boolean
+  }
 }
 
 export async function mixdown(
@@ -97,9 +142,24 @@ export async function mixdown(
       ? Math.max(...active.map((s) => s.startEpochMs)) - Math.min(...active.map((s) => s.startEpochMs))
       : 0
 
+  let resampledAnything = false
+
   const prepared = active.map((stem) => {
-    let samples = correctDrift(stem.samples, stem.driftPpm)
-    if (stem.sampleRate !== rate) samples = resample(samples, stem.sampleRate / rate)
+    let samples = stem.samples
+
+    if (settings.correctDrift) {
+      const corrected = correctDrift(samples, stem.driftPpm)
+      if (corrected !== samples) resampledAnything = true
+      samples = corrected
+    }
+
+    // A rate mismatch has to be resolved even in raw mode: you cannot place
+    // 44.1 kHz and 48 kHz audio on one timeline without converting one of them.
+    if (stem.sampleRate !== rate) {
+      samples = resample(samples, stem.sampleRate / rate)
+      resampledAnything = true
+    }
+
     const offsetSec = (stem.startEpochMs + stem.nudgeMs - origin) / 1000
     return { stem, samples, offsetSec }
   })
@@ -210,13 +270,16 @@ export async function mixdown(
   }
 
   // Final loudness pass on the finished programme, because the mix of two
-  // normalised stems is not itself at the target.
-  const before = measureLoudness(interleaved, rate)
-  const gain = 10 ** ((settings.targetLufs - before.lufs) / 20)
-  for (let i = 0; i < interleaved.length; i += 1) {
-    interleaved[i] = (interleaved[i] as number) * gain
+  // normalised stems is not itself at the target. Skipped entirely for a raw
+  // take: there, the sum is the deliverable, overs and all.
+  if (settings.master) {
+    const before = measureLoudness(interleaved, rate)
+    const gain = 10 ** ((settings.targetLufs - before.lufs) / 20)
+    for (let i = 0; i < interleaved.length; i += 1) {
+      interleaved[i] = (interleaved[i] as number) * gain
+    }
+    limit(interleaved, rate, -1)
   }
-  limit(interleaved, rate, -1)
 
   return {
     samples: interleaved,
@@ -226,6 +289,13 @@ export async function mixdown(
     loudness: measureLoudness(interleaved, rate),
     placement,
     spreadMs,
+    applied: {
+      driftCorrection: settings.correctDrift && resampledAnything,
+      headTrim: headTrimSec > 0,
+      loudnessNormalisation: settings.master,
+      limiting: settings.master,
+      resampling: resampledAnything,
+    },
   }
 }
 

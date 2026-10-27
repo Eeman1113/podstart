@@ -4,12 +4,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { EnvelopeTrack } from '@/lib/audio/envelope'
 import { DEFAULT_CLEANUP, type CleanupReport, type CleanupSettings } from '@/lib/dsp/pipeline'
-import { DEFAULT_MIX, mixdown, mixToWav, type JinglePlacement, type MixResult, type MixSettings, type Stem } from '@/lib/mix/mixdown'
+import {
+  DEFAULT_MIX, RAW_MIX, mixdown, mixToWav,
+  type JinglePlacement, type MixResult, type MixSettings, type Stem,
+} from '@/lib/mix/mixdown'
+import { buildSidecar, sidecarReadme } from '@/lib/mix/sidecar'
 import { downloadTrack } from '@/lib/store/uploads'
 import {
   getSession, loadJingleAudio, myJingles, placementsForSession, tracksForSession,
 } from '@/lib/store/db'
-import type { Jingle, Session, SessionJingle, Track } from '@/lib/supabase/types'
+import type { Jingle, ProcessingMode, Session, SessionJingle, Track } from '@/lib/supabase/types'
 
 /**
  * Post-production state.
@@ -46,6 +50,11 @@ export interface EpisodeState {
   useCleaned: boolean
   settings: CleanupSettings
   mixSettings: MixSettings
+  /**
+   * 'raw' is a hard guarantee, not a preset: no cleanup, no mastering, no
+   * drift resampling, and stems exported bit-for-bit as captured.
+   */
+  mode: ProcessingMode
 }
 
 export function useEpisode(sessionId: string, myUserId: string | null, basePath: string) {
@@ -61,6 +70,7 @@ export function useEpisode(sessionId: string, myUserId: string | null, basePath:
   const [useCleaned, setUseCleaned] = useState(true)
   const [settings, setSettings] = useState<CleanupSettings>(DEFAULT_CLEANUP)
   const [mixSettings, setMixSettings] = useState<MixSettings>(DEFAULT_MIX)
+  const [mode, setMode] = useState<ProcessingMode>('clean')
 
   const workerRef = useRef<Worker | null>(null)
 
@@ -74,6 +84,14 @@ export function useEpisode(sessionId: string, myUserId: string | null, basePath:
         if (!found) throw new Error('That take no longer exists.')
         if (cancelled) return
         setSession(found)
+
+        // A take recorded as raw opens raw. Changing it here is allowed, but
+        // it should never be the silent default.
+        if (found.processing === 'raw') {
+          setMode('raw')
+          setMixSettings(RAW_MIX)
+          setUseCleaned(false)
+        }
 
         const tracks = await tracksForSession(sessionId)
         if (tracks.length === 0) throw new Error('This take has no tracks.')
@@ -252,9 +270,55 @@ export function useEpisode(sessionId: string, myUserId: string | null, basePath:
 
   useEffect(() => () => workerRef.current?.terminate(), [])
 
+  /**
+   * Switching to raw forces every sample-altering stage off at once, so there
+   * is no way to be in "raw" mode with the limiter quietly still running.
+   */
+  const changeMode = useCallback((next: ProcessingMode) => {
+    setMode(next)
+    setMix(null)
+    if (next === 'raw') {
+      setMixSettings((previous) => ({
+        ...RAW_MIX,
+        sampleRate: previous.sampleRate,
+        channels: previous.channels,
+      }))
+      setUseCleaned(false)
+    } else {
+      setMixSettings((previous) => ({
+        ...previous,
+        master: true,
+        correctDrift: true,
+        trimHead: DEFAULT_MIX.trimHead,
+        headroomSec: DEFAULT_MIX.headroomSec,
+      }))
+    }
+  }, [])
+
+  /** The alignment numbers, for aligning raw stems in your own editor. */
+  const sidecar = useCallback(() => {
+    if (stems.length === 0) return null
+    const title = session?.title ?? 'take'
+    const slug = title.replace(/[^\w-]+/g, '-').toLowerCase()
+    const data = buildSidecar(
+      title,
+      stems.map((stem) => ({
+        track: stem.track,
+        durationSec: stem.raw.length / stem.sampleRate,
+        filename: `${slug}-${stem.track.display_name.toLowerCase()}-raw.wav`,
+      })),
+      new Date().toISOString(),
+    )
+    return {
+      json: new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+      readme: new Blob([sidecarReadme(data)], { type: 'text/plain' }),
+      data,
+    }
+  }, [stems, session])
+
   const state: EpisodeState = {
     session, stems, jingles, placements, loading, progress, processing, mix, error,
-    useCleaned, settings, mixSettings,
+    useCleaned, settings, mixSettings, mode,
   }
 
   return {
@@ -265,8 +329,10 @@ export function useEpisode(sessionId: string, myUserId: string | null, basePath:
     setStems,
     setJingles,
     setPlacements,
+    setMode: changeMode,
     clean,
     buildMix,
+    sidecar,
     exportWav: () => (mix ? mixToWav(mix) : null),
   }
 }

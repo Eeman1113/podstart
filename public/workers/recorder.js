@@ -98,6 +98,10 @@ function encodeFlac(samples, sampleRate, channels, bitsPerSample) {
 }
 
 function wavBytes(samples, sampleRate, channels, bitsPerSample) {
+  // 32 means IEEE float, written through untouched: no scaling, no rounding,
+  // no clamping. This is the format a raw take uploads in, so that what lands
+  // in storage is bit-identical to what the microphone produced.
+  const isFloat = bitsPerSample === 32
   const bytesPerSample = bitsPerSample / 8
   const blockAlign = channels * bytesPerSample
   const frames = samples.length / channels
@@ -112,7 +116,7 @@ function wavBytes(samples, sampleRate, channels, bitsPerSample) {
   ascii(8, 'WAVE')
   ascii(12, 'fmt ')
   view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
+  view.setUint16(20, isFloat ? 3 : 1, true)
   view.setUint16(22, channels, true)
   view.setUint32(24, sampleRate, true)
   view.setUint32(28, sampleRate * blockAlign, true)
@@ -120,6 +124,11 @@ function wavBytes(samples, sampleRate, channels, bitsPerSample) {
   view.setUint16(34, bitsPerSample, true)
   ascii(36, 'data')
   view.setUint32(40, dataBytes, true)
+
+  if (isFloat) {
+    out.set(new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength), 44)
+    return out
+  }
 
   let p = 44
   for (let i = 0; i < samples.length; i += 1) {
@@ -232,6 +241,9 @@ self.onmessage = async (event) => {
     state.channels = msg.channels
     state.bitsPerSample = msg.bitsPerSample || 24
     state.codec = msg.codec || 'flac'
+    // FLAC cannot carry 32-bit float. A bit-exact take therefore uploads WAV,
+    // which is larger but is the only lossless container for these samples.
+    if (state.bitsPerSample === 32) state.codec = 'wav'
     state.segmentFrames = Math.round((msg.segmentSeconds || 30) * msg.sampleRate)
     state.segment = new Float32Array(state.segmentFrames * msg.channels)
     state.segmentFill = 0

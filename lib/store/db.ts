@@ -2,7 +2,7 @@
 
 import { supabase } from '@/lib/supabase/client'
 import type {
-  CaptureReport, Jingle, Mix, Room, Session, SessionJingle, Track,
+  CaptureReport, Jingle, Mix, ProcessingMode, Room, Session, SessionJingle, Track,
 } from '@/lib/supabase/types'
 
 /** Every database call the app makes, in one place. */
@@ -48,14 +48,18 @@ export async function setDisplayName(name: string): Promise<void> {
 
 // -------------------------------------------------------------------- takes
 
-export async function createSession(roomId: string, title: string): Promise<Session> {
+export async function createSession(
+  roomId: string,
+  title: string,
+  processing: ProcessingMode = 'clean',
+): Promise<Session> {
   const sb = supabase()
   const { data: auth } = await sb.auth.getUser()
   if (!auth.user) throw new Error('Not signed in')
 
   const { data, error } = await sb
     .from('sessions')
-    .insert({ room_id: roomId, title, created_by: auth.user.id, state: 'idle' })
+    .insert({ room_id: roomId, title, created_by: auth.user.id, state: 'idle', processing })
     .select()
     .single()
 

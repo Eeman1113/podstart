@@ -24,7 +24,9 @@ export default function StudioPage() {
 function Studio() {
   const params = useSearchParams()
   const code = (params.get('room') ?? '').toUpperCase()
-  const { state, setup, record, stop, toggleTalkback, dismissWarning } = useStudio(code, BASE)
+  const {
+    state, setup, record, stop, toggleTalkback, dismissWarning, setProcessing, saveLocalCopy,
+  } = useStudio(code, BASE)
   const [devices, setDevices] = useState<InputDevice[]>([])
   const [deviceId, setDeviceId] = useState<string | undefined>(undefined)
 
@@ -69,6 +71,7 @@ function Studio() {
         jitterMs={state.clockJitterMs}
         quality={state.capture?.report.path ?? 'unknown'}
         sampleRate={state.capture?.sampleRate ?? 0}
+        processing={state.processing}
       />
 
       {state.phase === 'needs-mic' ? (
@@ -109,6 +112,19 @@ function Studio() {
                   : undefined
             }
           />
+
+          {state.phase === 'ready' && (
+            <ModeChooser
+              value={state.processing}
+              onChange={(next) => {
+                setProcessing(next)
+                // The capture format differs between modes, so the recorder is
+                // rebuilt rather than reconfigured. Cheap, and it happens only
+                // while idle.
+                void setup(deviceId)
+              }}
+            />
+          )}
 
           <div style={{ display: 'grid', gap: 14 }}>
             <LevelMeter
@@ -171,6 +187,30 @@ function Studio() {
           >
             Open the take
           </Button>
+
+          {state.hasLocalCopy && (
+            <>
+              <Button
+                full
+                onClick={async () => {
+                  const blob = await saveLocalCopy()
+                  if (!blob) return
+                  const url = URL.createObjectURL(blob)
+                  const link = document.createElement('a')
+                  link.href = url
+                  link.download = `${code}-${Date.now()}-untouched.wav`
+                  link.click()
+                  setTimeout(() => URL.revokeObjectURL(url), 4000)
+                }}
+              >
+                Save my untouched recording
+              </Button>
+              <p style={{ fontSize: 13, color: 'var(--label-tertiary)', lineHeight: 1.5 }}>
+                32-bit float, straight from this device’s local copy. These samples have
+                not been converted, scaled or quantised by anything.
+              </p>
+            </>
+          )}
         </Card>
       )}
 
@@ -230,7 +270,7 @@ function TopBar({ code, title, live }: { code: string; title: string; live: bool
 }
 
 function StatusStrip({
-  friendName, present, connected, rttMs, jitterMs, quality, sampleRate,
+  friendName, present, connected, rttMs, jitterMs, quality, sampleRate, processing,
 }: {
   friendName: string
   present: boolean
@@ -239,6 +279,7 @@ function StatusStrip({
   jitterMs: number | null
   quality: 'raw' | 'processed' | 'unknown'
   sampleRate: number
+  processing: 'clean' | 'raw'
 }) {
   const syncTone = jitterMs === null ? 'neutral' : jitterMs < 8 ? 'good' : 'warn'
 
@@ -262,7 +303,76 @@ function StatusStrip({
           {quality === 'raw' ? `Raw ${(sampleRate / 1000).toFixed(1)}k` : 'Processed'}
         </Pill>
       )}
+      {processing === 'raw' && <Pill tone="neutral">Untouched take</Pill>}
     </div>
+  )
+}
+
+/**
+ * Chosen before the take, because it changes what is promised about the
+ * recording rather than how it is presented afterwards.
+ *
+ * Note that capture is identical either way -- podstart always records the raw
+ * signal. What this decides is whether anything is ever allowed to be applied
+ * to it afterwards.
+ */
+function ModeChooser({
+  value,
+  onChange,
+}: {
+  value: 'clean' | 'raw'
+  onChange(value: 'clean' | 'raw'): void
+}) {
+  const options = [
+    {
+      id: 'clean' as const,
+      title: 'Clean it up',
+      detail:
+        'Recorded raw, then denoised, de-reverbed and levelled to −16 LUFS afterwards. ' +
+        'You keep the original either way.',
+    },
+    {
+      id: 'raw' as const,
+      title: 'Leave it untouched',
+      detail:
+        'Nothing is ever applied: no noise reduction, no loudness, no limiting, no ' +
+        'resampling. Uploaded as 32-bit float, so the stems are bit-for-bit what the ' +
+        'microphone produced. Roughly twice the storage of a cleaned take.',
+    },
+  ]
+
+  return (
+    <Card style={{ display: 'grid', gap: 10 }}>
+      <h2 className="slate">This take</h2>
+      <div role="radiogroup" aria-label="Processing for this take" style={{ display: 'grid', gap: 8 }}>
+        {options.map((option) => {
+          const selected = value === option.id
+          return (
+            <button
+              key={option.id}
+              role="radio"
+              aria-checked={selected}
+              onClick={() => onChange(option.id)}
+              style={{
+                textAlign: 'left',
+                display: 'grid',
+                gap: 4,
+                padding: '14px 16px',
+                borderRadius: 'var(--radius)',
+                minHeight: 'var(--tap)',
+                background: selected ? 'color-mix(in srgb, var(--accent) 14%, transparent)' : 'var(--bg-control)',
+                border: `1.5px solid ${selected ? 'var(--accent)' : 'transparent'}`,
+              }}
+            >
+              <span style={{ fontSize: 16, fontWeight: 600 }}>{option.title}</span>
+              <span style={{ fontSize: 13, color: 'var(--label-secondary)', lineHeight: 1.45 }}>
+                {option.detail}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </Card>
   )
 }
 

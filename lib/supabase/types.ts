@@ -31,11 +31,18 @@ export interface RoomMember {
   joined_at: string
 }
 
+/**
+ * 'clean' allows the cleanup chain and the mastering stage.
+ * 'raw' forbids both: the samples are never altered by anything.
+ */
+export type ProcessingMode = 'clean' | 'raw'
+
 export interface Session {
   id: string
   room_id: string
   title: string
   state: SessionState
+  processing: ProcessingMode
   created_by: string
   downbeat_epoch_ms: number | null
   stopped_epoch_ms: number | null
