@@ -53,6 +53,14 @@ for you to apply in your own editor. It is a single switch rather than a row of 
 set to zero, because zeroed sliders would still leave the mastering stage running and the
 label would be a lie. Costs about twice the storage, since FLAC cannot carry float.
 
+**Archives itself to Google Drive.** When a take is done, one button sends the
+stems, the mix and the sync notes to a `podstart` folder in your Drive and then frees
+the space they were using. The order is strict and not configurable: upload, then read
+every file back out of Drive and check its size, and only then delete anything. If one
+file out of six fails to confirm, nothing is deleted at all. Recording audio cannot be
+regenerated, so deleting too eagerly costs an episode while deleting too cautiously
+costs some disk — those are not comparable.
+
 **Jingles.** Drop in an intro, outro or bed. They are placed on the timeline at exact
 offsets with fades, and a bed automatically ducks both voices underneath it.
 
@@ -88,7 +96,32 @@ npm run dev
 Open <http://localhost:3000>. Both keys are public by design in a static bundle; every
 table is protected by row-level security instead.
 
-### 3. Deploy to GitHub Pages
+### 3. Google Drive (optional, 5 minutes)
+
+Drive's free 15 GB holds roughly ten episodes, against Supabase's 1 GB. To enable
+archiving:
+
+1. At [console.cloud.google.com](https://console.cloud.google.com), create a
+   project and enable the **Google Drive API**.
+2. Under **APIs & Services → Credentials**, create an **OAuth 2.0 Client ID** of
+   type **Web application**.
+3. Add your site's origin under **Authorized JavaScript origins** — e.g.
+   `https://eeman1113.github.io`, and `http://localhost:3000` for development.
+   Origins only; no redirect URI is needed.
+4. Put the client ID in `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, locally and as a GitHub
+   Actions variable.
+
+There is no client secret, because there is nowhere in a static site to keep one
+and the browser flow does not need it.
+
+podstart requests exactly one scope, `drive.file`, which grants access to files
+**this app creates** and nothing else in your Drive. It cannot list, read or
+touch anything that was already there. That scope is also classed
+non-sensitive, so you can publish the consent screen without Google's
+verification review — while the app is in "Testing" you must add yourself under
+**Audience → Test users**, and tokens expire after seven days.
+
+### 4. Deploy to GitHub Pages
 
 Push to `main`. Then in the repo:
 
@@ -99,8 +132,9 @@ Push to `main`. Then in the repo:
 The workflow in `.github/workflows/deploy.yml` handles the rest, including setting the
 base path to your repo name.
 
-Finally, add your Pages URL to Supabase under **Authentication → URL Configuration →
-Redirect URLs**.
+Finally, enable **Anonymous sign-ins** under **Authentication → Sign In / Providers**
+(and press Save). That is what lets a guest record with nothing but the room code; the
+app cannot create a room without it.
 
 ---
 
@@ -142,9 +176,9 @@ a web page cannot override this. On iPhone in particular, do not switch apps.
   nudge. For talking, the automatic alignment is already well inside what anyone can
   hear.
 - **Free tier storage is 1 GB**, and an hour of lossless audio from two people is around
-  600 MB as FLAC. One episode fits comfortably. Clear each take after you have
-  downloaded it, or upgrade. The lossless copy on your own device is independent of
-  this.
+  600 MB as FLAC — or about 1.4 GB in raw mode, which does not fit. Archive each take to
+  Drive when you are done with it, or self-host (see `deploy/`). The lossless copy on
+  your own device is independent of either.
 - **Safari before 17** lacks pieces of the storage and WebCodecs APIs. The device check
   will say so rather than letting you find out afterwards.
 

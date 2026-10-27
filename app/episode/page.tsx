@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 
+import { DriveArchive } from '@/components/DriveArchive'
 import { WaveformTape } from '@/components/WaveformTape'
 import { Timecode } from '@/components/Transport'
 import { Button, Card, Notice, Pill, Row, Slider, Spinner, Toggle } from '@/components/ui'
@@ -288,22 +289,65 @@ function Episode() {
         )}
       </Card>
 
+      <DriveArchive
+        sessionId={sessionId}
+        takeName={`${state.session?.title ?? 'Take'} — ${new Date(
+          state.session?.created_at ?? Date.now(),
+        ).toLocaleDateString('en-CA')}`}
+        collectFiles={async () => {
+          // Built here rather than held in state: a mix is hundreds of
+          // megabytes and should not exist until something asks for it.
+          const slug = (state.session?.title ?? 'take').replace(/[^\w-]+/g, '-').toLowerCase()
+          const items: { name: string; blob: Blob }[] = []
+
+          for (const stem of state.stems) {
+            const cleaned = state.useCleaned && stem.cleaned ? stem.cleaned : null
+            const person = stem.track.display_name.toLowerCase().replace(/[^\w-]+/g, '-')
+
+            // The untouched capture always goes up. It is the one thing that
+            // cannot be recreated from anything else in the folder.
+            items.push({
+              name: `${slug}-${person}-raw.wav`,
+              blob: wavBlob(stem.raw, stem.sampleRate, 1, state.mode === 'raw' ? 32 : 24),
+            })
+            if (cleaned) {
+              items.push({
+                name: `${slug}-${person}-cleaned.wav`,
+                blob: wavBlob(cleaned, stem.sampleRate, 1, 24),
+              })
+            }
+          }
+
+          const mix = episode.exportWav()
+          if (mix) items.push({ name: `${slug}-mix.wav`, blob: mix })
+
+          const sidecar = episode.sidecar()
+          if (sidecar) {
+            items.push({ name: `${slug}-sync-notes.txt`, blob: sidecar.readme })
+            items.push({ name: `${slug}-sync.json`, blob: sidecar.json })
+          }
+
+          return items
+        }}
+        onFreed={() => window.location.reload()}
+      />
+
       <Card style={{ display: 'grid', gap: 12 }}>
         <h2 className="slate">Storage</h2>
         <p style={{ fontSize: 14, color: 'var(--label-secondary)', lineHeight: 1.5 }}>
-          Lossless stems are large, and a free Supabase project holds 1 GB. Once you have
-          downloaded everything you need, clear this take’s audio to make room for the next
-          episode. The take’s settings and reports stay.
+          Lossless stems are large and a free Supabase project holds 1 GB. Archiving to
+          Drive above clears this for you once the files are confirmed. Use this only if
+          you have the files somewhere already — it deletes without checking.
         </p>
         <Button
           variant="danger"
           onClick={async () => {
-            if (!confirm('Delete this take’s uploaded audio? Downloaded files are unaffected.')) return
+            if (!confirm('Delete this take’s uploaded audio? This cannot be undone.')) return
             await forgetSessionAudio(sessionId)
-            alert('Cleared. The next episode has room.')
+            window.location.reload()
           }}
         >
-          Clear this take’s audio
+          Clear this take’s audio without archiving
         </Button>
       </Card>
     </main>
