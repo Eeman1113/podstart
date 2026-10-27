@@ -1,0 +1,31 @@
+{
+  "name": "podstart",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Synchronised remote podcast recording. Lossless local capture, automatic cleanup, one-click synced mixdown.",
+  "scripts": {
+    "predev": "node scripts/vendor.mjs",
+    "dev": "next dev",
+    "prebuild": "node scripts/vendor.mjs",
+    "build": "next build && touch out/.nojekyll",
+    "start": "npx serve out",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build",
+    "db:push": "supabase db push",
+    "db:local": "supabase start"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
+    "next": "^16.4.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "libflacjs": "^5.6.0",
+    "@jitsi/rnnoise-wasm": "^0.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^5.9.0"
+  }
+}

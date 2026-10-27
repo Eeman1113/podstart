@@ -1,0 +1,42 @@
+# Local Supabase config. `supabase start` boots a full stack on your Mac for
+# development; `supabase db push` applies ./migrations to the hosted project.
+project_id = "podstart"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54323
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+# Magic links only: no passwords to forget before a recording session.
+enable_confirmations = false
+
+# A guest joining with a room code does not need an account.
+[auth.sessions]
+inactivity_timeout = "0s"

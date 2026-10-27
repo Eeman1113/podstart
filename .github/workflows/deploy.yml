@@ -1,0 +1,66 @@
+# Builds podstart and publishes it to GitHub Pages.
+#
+# Set these in Settings -> Secrets and variables -> Actions -> Variables:
+#   NEXT_PUBLIC_SUPABASE_URL
+#   NEXT_PUBLIC_SUPABASE_ANON_KEY
+# They are *variables*, not secrets: both are public by design in a static
+# bundle and are protected by row-level security, not by being hidden.
+#
+# Then set Settings -> Pages -> Source to "GitHub Actions".
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_TURN_URL: ${{ vars.NEXT_PUBLIC_TURN_URL }}
+          NEXT_PUBLIC_TURN_USERNAME: ${{ vars.NEXT_PUBLIC_TURN_USERNAME }}
+          NEXT_PUBLIC_TURN_CREDENTIAL: ${{ secrets.NEXT_PUBLIC_TURN_CREDENTIAL }}
+          # Serving from <user>.github.io/<repo> needs the repo name as a base
+          # path. Delete this line if you point a custom domain at the site.
+          NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

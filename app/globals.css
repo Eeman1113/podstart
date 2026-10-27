@@ -1,0 +1,165 @@
+/*
+ * podstart design tokens
+ *
+ * The studio screen is modelled on iOS Voice Memos, because that is the thing
+ * both of you already understand: one waveform, one cue line, one timecode.
+ * The single change is that the waveform is split -- your friend grows upward
+ * from the centre line, you grow downward -- so sync is something you can see
+ * rather than something you have to trust.
+ *
+ * Colours are Apple's semantic system palette rather than invented ones, so
+ * the app sits correctly on an iPhone next to the Voice Memos it replaces.
+ * Both appearances are defined; there is no in-app theme switch, because the
+ * device already has one.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces */
+  --bg: #ffffff;
+  --bg-elevated: #f2f2f7;
+  --bg-sunk: #e5e5ea;
+  --bg-control: rgba(118, 118, 128, 0.12);
+  --separator: rgba(60, 60, 67, 0.18);
+
+  /* Content. Contrast on --bg: label 21:1, secondary 4.9:1, tertiary 3.1:1
+     (tertiary is used only for 17 px and larger, where 3:1 is the floor). */
+  --label: #000000;
+  --label-secondary: rgba(60, 60, 67, 0.72);
+  --label-tertiary: rgba(60, 60, 67, 0.48);
+
+  /* Signals. One colour, one meaning, everywhere in the app. */
+  --accent: #007aff;        /* the cue line, and only the cue line */
+  --record: #ff3b30;        /* arming and recording, nothing else */
+  --friend: #0b84a5;        /* the upper half of the waveform */
+  --mine: #1c1c1e;          /* the lower half of the waveform */
+  --good: #248a3d;          /* levels healthy, upload complete */
+  --warn: #b25000;          /* clipping, drift, a stalled upload */
+
+  --radius: 14px;
+  --radius-lg: 22px;
+  --tap: 44px;              /* the minimum comfortable control size */
+
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Roboto Mono", monospace;
+
+  --ease: cubic-bezier(0.32, 0.72, 0, 1); /* the iOS sheet curve */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --bg-elevated: #1c1c1e;
+    --bg-sunk: #2c2c2e;
+    --bg-control: rgba(118, 118, 128, 0.24);
+    --separator: rgba(84, 84, 88, 0.65);
+
+    --label: #ffffff;
+    --label-secondary: rgba(235, 235, 245, 0.68);
+    --label-tertiary: rgba(235, 235, 245, 0.42);
+
+    --accent: #0a84ff;
+    --record: #ff453a;
+    --friend: #64d2ff;   /* 8.9:1 on --bg-elevated */
+    --mine: #f5f5f7;     /* 17.1:1 on --bg-elevated */
+    --good: #30d158;
+    --warn: #ff9f0a;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--label);
+  font-family: var(--font);
+  /* Type scales with the system setting; nothing here is locked to pixels
+     that would stop Dynamic Type working. */
+  font-size: 17px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+body {
+  min-height: 100dvh;
+  /* Never let a transport control sit under the home indicator. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+h1, h2, h3, p, figure { margin: 0; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+input, select, textarea {
+  font: inherit;
+  color: var(--label);
+  background: var(--bg-elevated);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  width: 100%;
+  min-height: var(--tap);
+}
+
+a { color: var(--accent); text-decoration: none; }
+
+/* Numerals that do not jitter: essential for a running timecode. */
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.01em;
+}
+
+/* The small tracked-out labels on the studio screen. Borrowed from the
+   silkscreen on studio hardware, which is where this app's vocabulary
+   (take, cue, stem, levels) comes from too. */
+.slate {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--label-tertiary);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
