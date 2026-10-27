@@ -115,6 +115,15 @@ create policy "write segments of own track"
     exists (select 1 from tracks t where t.id = track_id and t.user_id = auth.uid())
   );
 
+-- The uploader upserts a segment when it retries, which needs UPDATE as well
+-- as INSERT. Without this every retried upload fails on the second attempt.
+create policy "update segments of own track"
+  on track_segments for update using (
+    exists (select 1 from tracks t where t.id = track_id and t.user_id = auth.uid())
+  ) with check (
+    exists (select 1 from tracks t where t.id = track_id and t.user_id = auth.uid())
+  );
+
 create policy "delete segments of own track"
   on track_segments for delete using (
     exists (select 1 from tracks t where t.id = track_id and t.user_id = auth.uid())

@@ -122,6 +122,17 @@ create policy "write own stem segments" on storage.objects for insert
     )
   );
 
+-- Retried uploads use upsert, which needs UPDATE on the object too.
+create policy "replace own stem segments" on storage.objects for update
+  using (
+    bucket_id = 'stems'
+    and exists (
+      select 1 from tracks t
+      where t.id = (storage.foldername(name))[2]::uuid
+        and t.user_id = auth.uid()
+    )
+  );
+
 create policy "members clear stems" on storage.objects for delete
   using (
     bucket_id = 'stems'
