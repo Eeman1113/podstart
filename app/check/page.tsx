@@ -91,6 +91,11 @@ export default function CheckPage() {
     // Both are probed by booting the REAL recorder worker rather than by
     // feature-testing here. Synchronous access handles are only exposed inside
     // a worker, so a main-thread check reports a failure that does not exist.
+    // The first run on a device fetches ~250 KB of WebAssembly. On a phone
+    // that is long enough that a bare spinner reads as a hang, so say so.
+    set('opfs', 'running', 'Starting the recorder worker…')
+    set('flac', 'running', 'Fetching libFLAC (first run only)…')
+
     try {
       const result = await probeRecorderWorker()
 
@@ -120,6 +125,9 @@ export default function CheckPage() {
     }
 
     // ---------------------------------------------------------- cleanup engine
+    set('dsp', 'running', 'Running a cleanup pass over two seconds of test audio…')
+    set('rnnoise', 'running', 'Fetching RNNoise (first run only)…')
+
     try {
       const { lufs, elapsedMs, engine } = await probeDspWorker()
       set(
